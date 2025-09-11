@@ -67,6 +67,12 @@ defimpl LiveViewNative.Template.Safe, for: URI do
   def to_iodata(data), do: Phoenix.HTML.Engine.html_escape(URI.to_string(data))
 end
 
+defimpl LiveViewNative.Template.Safe, for: Decimal do
+  def to_iodata(t) do
+    @for.to_string(t, :normal)
+  end
+end
+
 defimpl LiveViewNative.Template.Safe, for: Phoenix.LiveView.Rendered do
   def to_iodata(%Phoenix.LiveView.Rendered{static: static, dynamic: dynamic}) do
     to_iodata(static, dynamic.(false), [])
