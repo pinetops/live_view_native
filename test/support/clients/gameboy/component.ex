@@ -22,7 +22,8 @@ defmodule LiveViewNativeTest.GameBoy.Component do
   def live_file_input(%{upload: upload} = var!(assigns), _interface) do
     var!(assigns) = assign_new(var!(assigns), :accept, fn -> upload.accept != :any && upload.accept end)
 
-    ~LVN"""
+    result = ~LVN"""
+    <!-- upload-input-component -->
     <Input
       id={@upload.ref}
       type="file"
@@ -40,6 +41,14 @@ defmodule LiveViewNativeTest.GameBoy.Component do
       {if @upload.max_entries > 1, do: Map.put(@rest, :multiple, true), else: @rest}
     />
     """
+
+    IO.puts("\n=== live_file_input result ===")
+    IO.puts("Type: #{inspect(result.__struct__)}")
+    IO.puts("Fingerprint: #{inspect(result.fingerprint)}")
+    IO.puts("Static length: #{inspect(length(result.static))}")
+    IO.inspect(result.static, label: "Static parts", limit: 20)
+
+    result
   end
 
   defp join_refs(entries), do: Enum.join(entries, ",")

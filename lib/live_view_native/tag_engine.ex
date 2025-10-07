@@ -400,6 +400,14 @@ defmodule LiveViewNative.TagEngine do
   # Expr
 
   defp handle_token({:expr, marker, expr}, state) do
+    # DEBUG: Track comprehension ordering
+    expr_str = Macro.to_string(expr) |> String.slice(0, 100)
+    if expr_str =~ "uploads.avatar.entries" do
+      IO.puts("\n[TagEngine.handle_token :expr] COMPREHENSION for @uploads.avatar.entries")
+      IO.puts("  Marker: #{marker}")
+      IO.puts("  About to send to Engine via update_subengine(:handle_expr, ...)")
+    end
+
     state
     |> set_root_on_not_tag()
     |> update_subengine(:handle_expr, [marker, expr])
@@ -613,6 +621,13 @@ defmodule LiveViewNative.TagEngine do
         )
       end
 
+    #  DEBUG
+    if fun == :live_file_input do
+      IO.puts("\n[TagEngine.handle_token :local_component] live_file_input at line #{line}")
+      IO.puts("  About to send to Engine via update_subengine(:handle_expr, ...)")
+      IO.puts("  Checking special_attrs...")
+    end
+
     case pop_special_attrs!(attrs, tag_meta, state) do
       {false, _tag_meta, _attrs} ->
         state
@@ -756,7 +771,7 @@ defmodule LiveViewNative.TagEngine do
   #   pop_special_attrs!(state, ":for", attrs, %{}, state)
   #   => {%{}, []}
   defp pop_special_attrs!(attrs, tag_meta, state) do
-    Enum.reduce([for: ":for", if: ":if"], {false, tag_meta, attrs}, fn
+    Enum.reduce([for: ":for", if: ":if", key: ":key"], {false, tag_meta, attrs}, fn
       {attr, string_attr}, {special_acc, meta_acc, attrs_acc} ->
         attrs_acc
         |> List.keytake(string_attr, 0)
@@ -892,15 +907,29 @@ defmodule LiveViewNative.TagEngine do
   defp literal_keys?(_other), do: false
 
   defp handle_special_expr(state, tag_meta) do
+    # DEBUG
+    if Map.has_key?(tag_meta, :for) do
+      {:<-, _, [_, rhs]} = tag_meta.for
+      rhs_str = Macro.to_string(rhs)
+      if rhs_str =~ "uploads.avatar.entries" do
+        IO.puts("[TagEngine.handle_special_expr] COMPREHENSION for @uploads.avatar.entries")
+        IO.puts("  About to call pop_substate and update_subengine(:handle_expr, ...)")
+      end
+    end
+
     ast =
       case tag_meta do
-        %{for: for_expr, if: if_expr} ->
+        %{for: _for_expr, if: if_expr} ->
+          for_expr = maybe_keyed(tag_meta)
+
           quote do
             for unquote(for_expr), unquote(if_expr),
               do: unquote(invoke_subengine(state, :handle_end, []))
           end
 
-        %{for: for_expr} ->
+        %{for: _for_expr} ->
+          for_expr = maybe_keyed(tag_meta)
+
           quote do
             for unquote(for_expr), do: unquote(invoke_subengine(state, :handle_end, []))
           end
@@ -909,6 +938,9 @@ defmodule LiveViewNative.TagEngine do
           quote do
             if unquote(if_expr), do: unquote(invoke_subengine(state, :handle_end, []))
           end
+
+        %{key: _} ->
+          raise_syntax_error!("cannot use :key without :for", tag_meta, state)
 
         %{} ->
           nil
@@ -922,6 +954,15 @@ defmodule LiveViewNative.TagEngine do
       state
     end
   end
+
+  defp maybe_keyed(%{key: key_expr, for: for_expr}) do
+    # we already validated that the for expression has the correct shape in
+    # validate_quoted_special_attr
+    {:<-, for_meta, [lhs, rhs]} = for_expr
+    {:<-, [keyed_comprehension: true, key_expr: key_expr] ++ for_meta, [lhs, rhs]}
+  end
+
+  defp maybe_keyed(%{for: for_expr}), do: for_expr
 
   ## build_self_close_component_assigns/build_component_assigns
 
@@ -982,7 +1023,17 @@ defmodule LiveViewNative.TagEngine do
     {special, [quoted_value | r], a, locs}
   end
 
-  @special_attrs ~w(:let :if :for)
+  @special_attrs ~w(:let :if :for :key)
+  defp split_component_attr(
+         {":key", _expr, attr_meta},
+         _,
+         state,
+         {"slot", slot_name}
+       ) do
+    message = ":key is not supported on slots: #{slot_name}"
+    raise_syntax_error!(message, attr_meta, state)
+  end
+
   defp split_component_attr(
          {attr, {:expr, value, %{line: line, column: col} = meta}, attr_meta},
          {special, r, a, locs},

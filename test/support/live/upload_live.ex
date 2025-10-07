@@ -11,7 +11,7 @@ defmodule LiveViewNativeTest.UploadLive do
       as: :render
 
     def render(%{uploads: _} = assigns, _interface) do
-      ~LVN"""
+      result = ~LVN"""
       <%= for preflight <- @preflights do %>
         preflight:{inspect(preflight)}
       <% end %>
@@ -34,6 +34,8 @@ defmodule LiveViewNativeTest.UploadLive do
         <Button type="submit">save</Button>
       </LiveForm>
       """
+
+      result
     end
 
     def render(assigns, _interface) do
