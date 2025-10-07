@@ -89,8 +89,7 @@ defmodule LiveViewNativeTest.ClientProxy do
 
     # We can assume there is at least one LiveView
     # because the live_module assign was set.
-    response_html = if is_struct(response_body, LazyHTML), do: LazyHTML.to_html(response_body), else: response_body
-    root_markup = ViewTree.parse(response_html)
+    root_markup = ViewTree.parse(response_body)
 
     {id, session_token, static_token, redirect_url} =
       case Map.fetch(opts, :live_redirect) do
