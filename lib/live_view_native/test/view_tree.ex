@@ -4,6 +4,9 @@ defmodule LiveViewNativeTest.ViewTree do
   @phx_component "data-phx-component"
   @static :s
   @components :c
+  @template :p
+  @keyed :k
+  @keyed_count :kc
   @stream_id :stream
 
   def ensure_loaded! do
@@ -284,6 +287,12 @@ defmodule LiveViewNativeTest.ViewTree do
     update_in(rendered[@components], &Map.drop(&1, cids))
   end
 
+  # We resolve any templates when merging, because subsequent patches can
+  # contain more templates that are not compatible with previous diffs.
+  # This prevents template position collisions from breaking rendering.
+  defp deep_merge_diff(target, %{@template => template} = source),
+    do: deep_merge_diff(target, resolve_templates(Map.delete(source, @template), template))
+
   defp deep_merge_diff(_target, %{@static => _} = source),
     do: source
 
@@ -292,6 +301,48 @@ defmodule LiveViewNativeTest.ViewTree do
 
   defp deep_merge_diff(_target, source),
     do: source
+
+  # Template resolution helpers - convert template position references to literal static parts
+  defp resolve_templates(%{@template => template} = rendered, nil) do
+    resolve_templates(Map.delete(rendered, @template), template)
+  end
+
+  defp resolve_templates(%{@static => static} = rendered, template) when is_integer(static) do
+    resolve_templates(Map.put(rendered, @static, Map.fetch!(template, static)), template)
+  end
+
+  defp resolve_templates(%{@keyed => keyed} = rendered, template) do
+    keyed =
+      case keyed[@keyed_count] do
+        0 ->
+          keyed
+
+        count ->
+          for pos <- 0..(count - 1), reduce: keyed do
+            acc ->
+              case keyed[pos] do
+                nil -> acc
+                value -> Map.put(acc, pos, resolve_templates(value, template))
+              end
+          end
+      end
+
+    rendered
+    |> Map.put(@keyed, keyed)
+    |> Map.delete(@template)
+  end
+
+  defp resolve_templates(%{} = rendered, template) do
+    Enum.reduce(rendered, rendered, fn
+      {key, value}, acc when is_integer(key) ->
+        Map.put(acc, key, resolve_templates(value, template))
+
+      {_, _}, acc ->
+        acc
+    end)
+  end
+
+  defp resolve_templates(other, _template), do: other
 
   def extract_streams(%{} = source, streams) when not is_struct(source) do
     Enum.reduce(source, streams, fn
