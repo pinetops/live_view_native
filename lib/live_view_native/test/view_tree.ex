@@ -293,6 +293,32 @@ defmodule LiveViewNativeTest.ViewTree do
   defp deep_merge_diff(target, %{@template => template} = source),
     do: deep_merge_diff(target, resolve_templates(Map.delete(source, @template), template))
 
+  defp deep_merge_diff(target, %{@keyed => source_keyed} = source) when is_map(target) do
+    target_keyed = target[@keyed]
+
+    merged_keyed =
+      case source_keyed[@keyed_count] do
+        0 ->
+          %{@keyed_count => 0}
+
+        count ->
+          for pos <- 0..(count - 1), into: %{@keyed_count => count} do
+            value =
+              case source_keyed[pos] do
+                nil -> target_keyed[pos]
+                value when is_number(value) -> target_keyed[value]
+                value when is_map(value) -> deep_merge_diff(target_keyed[pos], value)
+                [old_pos, value] -> deep_merge_diff(target_keyed[old_pos], value)
+              end
+
+            {pos, value}
+          end
+      end
+
+    merged = deep_merge_diff(Map.delete(target, @keyed), Map.delete(source, @keyed))
+    Map.put(merged, @keyed, merged_keyed)
+  end
+
   defp deep_merge_diff(_target, %{@static => _} = source),
     do: source
 
@@ -332,14 +358,8 @@ defmodule LiveViewNativeTest.ViewTree do
     |> Map.delete(@template)
   end
 
-  defp resolve_templates(%{} = rendered, template) do
-    Enum.reduce(rendered, rendered, fn
-      {key, value}, acc when is_integer(key) ->
-        Map.put(acc, key, resolve_templates(value, template))
-
-      {_, _}, acc ->
-        acc
-    end)
+  defp resolve_templates(rendered, template) when is_map(rendered) and not is_struct(rendered) do
+    Map.new(rendered, fn {k, v} -> {k, resolve_templates(v, template)} end)
   end
 
   defp resolve_templates(other, _template), do: other
