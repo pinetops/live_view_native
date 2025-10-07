@@ -137,6 +137,10 @@ defmodule LiveViewNative.ViewTreeTest do
 
       new_markup = ViewTree.to_markup(new_markup)
 
+      IO.puts("\n=== ACTUAL MARKUP ===")
+      IO.puts(new_markup)
+      IO.puts("=== END MARKUP ===\n")
+
       refute new_markup =~ ~S(<Text id="1">a</Text>)
       assert new_markup =~ ~S(<Text id="2" class="foo">a</Text>)
       assert new_markup =~ ~S(<Group id="3"><Text id="5">inner</Text></Group>)
