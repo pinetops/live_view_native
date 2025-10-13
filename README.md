@@ -60,6 +60,78 @@ $ mix lvn.setup
 
 and follow the instructions on how to complete the setup process.
 
+## Tracking Upstream Changes
+
+LiveView Native is derived from Phoenix LiveView and needs to stay in sync with upstream changes. The `mix track_upstream` task helps identify and port changes from Phoenix LiveView to LiveView Native.
+
+### Prerequisites
+
+1. **OpenAI API Key**: The tool uses OpenAI embeddings for semantic code matching and GPT-4o for analysis.
+   ```bash
+   export OPENAI_API_KEY="your-api-key-here"
+   ```
+
+2. **Phoenix LiveView Repository**: Clone the Phoenix LiveView repository as a sibling directory:
+   ```bash
+   cd ..
+   git clone https://github.com/phoenixframework/phoenix_live_view.git
+   cd live_view_native
+   ```
+
+### Usage
+
+The tool compares Phoenix LiveView changes between two versions and identifies which LiveView Native files need updates:
+
+```bash
+mix track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev>
+```
+
+**Arguments:**
+- `plv_start_rev`: Phoenix LiveView version you last synced with (e.g., `v1.0.18`)
+- `plv_end_rev`: Phoenix LiveView version you want to upgrade to (e.g., `v1.1.14`)
+- `lvn_start_rev`: Current LiveView Native commit (e.g., `5905fd1`)
+
+The `lvn_start_rev` should be the commit where you last completed porting changes from `plv_start_rev`.
+
+**Example:**
+```bash
+# If LiveView Native was last synced with Phoenix LiveView v1.0.18,
+# and you want to upgrade to v1.1.14:
+mix track_upstream v1.0.18 v1.1.14 5905fd1
+```
+
+### Output
+
+The tool generates:
+- **Console output**: Matched file pairs, newly added files, and summary statistics
+- **`UPSTREAM_PORTING_GUIDE.md`**: Detailed porting guide with transformation rules and upstream changes
+- **`translation_analyses/`**: Individual file-pair analyses
+
+### Working with Claude
+
+To use the generated porting guide with Claude:
+
+1. Run the tracking tool to generate the guide:
+   ```bash
+   mix track_upstream v1.0.18 v1.1.14 5905fd1
+   ```
+
+2. In Claude, provide the guide and ask it to help port the changes:
+   ```
+   I need to port upstream changes from Phoenix LiveView to LiveView Native.
+   Please read UPSTREAM_PORTING_GUIDE.md and help me systematically port all changes.
+   ```
+
+3. Claude will create a plan and work through each file pair, applying the documented transformation rules.
+
+### Quick Analysis
+
+To see matched files without generating the full porting guide:
+
+```bash
+mix track_upstream v1.0.18 v1.1.14 5905fd1 --skip-analyze
+```
+
 ## Native Clients
 
 LiveView Native enables client frameworks such as:

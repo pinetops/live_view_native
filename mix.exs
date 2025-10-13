@@ -43,6 +43,7 @@ defmodule LiveViewNative.MixProject do
       {:plug, "~> 1.15"},
       {:jason, "~> 1.2"},
       {:plug_cowboy, "~> 2.5"},
+      {:req, "~> 0.4.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.24", only: :dev, runtime: false},
       {:makeup_eex, ">= 0.1.1", only: :dev, runtime: false},
       {:sourceror, "~> 1.5"},

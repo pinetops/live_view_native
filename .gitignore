@@ -25,3 +25,11 @@ live_view_native-*.tar
 .DS_Store
 
 tmp/
+
+# Track upstream changes tool
+.track_changes_cache/
+translation_analyses/
+UPSTREAM_PORTING_GUIDE.md
+script/track_upstream/_build/
+script/track_upstream/deps/
+script/track_upstream/mix.lock
