@@ -26,42 +26,35 @@ defmodule Mix.Tasks.TrackUpstream do
 
   ## Usage
 
-      mix track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev> [--skip-analyze]
+      mix track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev> [--upstream-dir <path>]
 
   ## Arguments
 
-    * `plv_start_rev` - Phoenix LiveView starting revision (e.g., v1.0.18)
-    * `plv_end_rev` - Phoenix LiveView ending revision (e.g., v1.1.14)
-    * `lvn_start_rev` - LiveView Native revision to compare (e.g., commit hash)
+    * `plv_start_rev` - Upstream starting revision (e.g., v1.0.18)
+    * `plv_end_rev` - Upstream ending revision (e.g., v1.1.14)
+    * `lvn_start_rev` - Downstream revision to compare (e.g., commit hash)
 
   ## Options
 
-    * `--skip-analyze` - Skip detailed analysis (only show file matches, no guide generation)
+    * `--upstream-dir <path>` - Path to upstream repository (default: current directory)
 
   ## Examples
 
       mix track_upstream v1.0.18 v1.1.14 5905fd1
-      mix track_upstream v1.0.18 v1.1.14 5905fd1 --skip-analyze
+      mix track_upstream v1.0.18 v1.1.14 5905fd1 --upstream-dir ../phoenix_live_view
 
   ## Requirements
 
     * `OPENAI_API_KEY` environment variable must be set
-    * Phoenix LiveView repository must be at `../phoenix_live_view`
-    * Current directory should be the LiveView Native repository
+    * Current directory should be the downstream repository (or use appropriate paths)
 
   ## Output
 
-  By default (with analysis):
     * Matched file pairs (existing)
     * Newly added Phoenix LiveView files categorized by relevance
     * Summary statistics
     * Individual file pair analyses in `translation_analyses/` directory
     * Global porting guide in `UPSTREAM_PORTING_GUIDE.md`
-
-  With `--skip-analyze`:
-    * Matched file pairs (existing)
-    * Newly added Phoenix LiveView files categorized by relevance
-    * Summary statistics
 
   ## Porting Constraints
 
@@ -82,22 +75,8 @@ defmodule Mix.Tasks.TrackUpstream do
   @impl Mix.Task
   def run(args) do
     # Parse arguments first to provide usage info without loading the script
-    {plv_start_rev, plv_end_rev, lvn_start_rev, analyze} =
-      case args do
-        [plv_start_rev, plv_end_rev, lvn_start_rev, "--skip-analyze"] ->
-          {plv_start_rev, plv_end_rev, lvn_start_rev, false}
-
-        [plv_start_rev, plv_end_rev, lvn_start_rev] ->
-          {plv_start_rev, plv_end_rev, lvn_start_rev, true}
-
-        _ ->
-          IO.puts("Usage: mix track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev> [--skip-analyze]")
-          IO.puts("Example: mix track_upstream v1.0.18 v1.1.14 some-commit-hash")
-          IO.puts("")
-          IO.puts("Options:")
-          IO.puts("  --skip-analyze    Skip detailed analysis (default: run analysis)")
-          System.halt(1)
-      end
+    {plv_start_rev, plv_end_rev, lvn_start_rev, opts} = parse_args(args)
+    upstream_dir = Keyword.get(opts, :upstream_dir, ".")
 
     # Ensure the script project is compiled
     # This allows the tool to work even if the main app doesn't compile
@@ -112,7 +91,31 @@ defmodule Mix.Tasks.TrackUpstream do
     Application.ensure_all_started(:crypto)
     {:ok, _} = Finch.start_link(name: Req.Finch)
 
-    TrackUpstream.CLI.run(plv_start_rev, plv_end_rev, lvn_start_rev, analyze: analyze)
+    TrackUpstream.CLI.run(plv_start_rev, plv_end_rev, lvn_start_rev, analyze: true, upstream_dir: upstream_dir)
+  end
+
+  defp parse_args(args) do
+    {opts, remaining, _invalid} = OptionParser.parse(args,
+      switches: [upstream_dir: :string],
+      aliases: []
+    )
+
+    case remaining do
+      [plv_start_rev, plv_end_rev, lvn_start_rev] ->
+        upstream_dir = opts[:upstream_dir]
+
+        final_opts = if upstream_dir, do: [upstream_dir: upstream_dir], else: []
+
+        {plv_start_rev, plv_end_rev, lvn_start_rev, final_opts}
+
+      _ ->
+        IO.puts("Usage: mix track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev> [--upstream-dir <path>]")
+        IO.puts("Example: mix track_upstream v1.0.18 v1.1.14 some-commit-hash")
+        IO.puts("")
+        IO.puts("Options:")
+        IO.puts("  --upstream-dir <path>    Path to upstream repository (default: current directory)")
+        System.halt(1)
+    end
   end
 
   defp ensure_script_compiled(script_path) do

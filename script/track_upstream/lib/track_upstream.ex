@@ -15,26 +15,15 @@ defmodule TrackUpstream do
     Configuration and constants for upstream change tracking.
     """
 
-    @porting_constraints """
-    IMPORTANT CONSTRAINTS when porting from Phoenix LiveView to LiveView Native:
-
-    1. **LazyHTML vs Floki:**
-       - LiveView Native uses Floki for parsing native markup (our primary use case)
-       - LazyHTML is Phoenix LiveView's HTML parser and is NOT compatible with native markup
-       - HOWEVER: LiveViewNative also supports HTML fallback rendering for web browsers
-       - Therefore: LazyHTML-based code MAY be included if it's specifically for HTML fallback testing
-       - When in doubt: Prefer Floki for native markup, preserve LazyHTML only for HTML fallback paths
-
-    2. **CSS and JS Exclusions:**
-       - CSS-related functionality should NOT be translated (not applicable to native platforms)
-       - JavaScript-related functionality should NOT be translated (not applicable to native platforms)
-       - This includes: style attributes, CSS selectors (unless used for general querying), JS interop, etc.
-
-    3. **Module Namespacing:**
-       - Phoenix.LiveView → LiveViewNative
-       - Phoenix.LiveViewTest → LiveViewNativeTest
-       - HTML-specific terms → Native-agnostic or native-specific terms
-    """
+    defstruct [
+      :upstream_name,
+      :upstream_abbrev,
+      :upstream_dir,
+      :downstream_name,
+      :downstream_abbrev,
+      :downstream_dir,
+      :porting_constraints
+    ]
 
     @cache_dirs %{
       embeddings: ".track_changes_cache/embeddings",
@@ -57,7 +46,6 @@ defmodule TrackUpstream do
       concurrency: System.schedulers_online() * 2
     }
 
-    def porting_constraints, do: @porting_constraints
     def cache_dirs, do: @cache_dirs
     def openai_config, do: @openai_config
     def analysis_config, do: @analysis_config
@@ -69,12 +57,130 @@ defmodule TrackUpstream do
       end)
     end
 
-    @doc "Validate configuration is ready"
+    @doc "Validate OpenAI configuration is ready"
     def validate! do
       api_key = System.get_env("OPENAI_API_KEY")
       unless api_key, do: raise "OPENAI_API_KEY environment variable not set"
       ensure_cache_dirs!()
       :ok
+    end
+
+    @config_file ".track_upstream_config.md"
+
+    @doc "Load or generate project configuration"
+    def load_or_generate_config do
+      if File.exists?(@config_file) do
+        IO.puts("Loading configuration from #{@config_file}...")
+        parse_config_file(@config_file)
+      else
+        IO.puts("Configuration file not found. Generating #{@config_file}...")
+        generate_config_template(@config_file)
+        IO.puts("")
+        IO.puts("=" |> String.duplicate(80))
+        IO.puts("PLEASE EDIT #{@config_file} WITH YOUR PROJECT SETTINGS")
+        IO.puts("=" |> String.duplicate(80))
+        IO.puts("")
+        IO.puts("Then run the command again.")
+        System.halt(0)
+      end
+    end
+
+    defp generate_config_template(file) do
+      template = """
+      # Track Upstream Configuration
+
+      Edit the values below for your project.
+
+      ## Upstream Project
+
+      **Name:** Phoenix LiveView
+      **Abbreviation:** PLV
+
+      ## Downstream Project
+
+      **Name:** LiveView Native
+      **Abbreviation:** LVN
+      **Repository Path:** .
+
+      ## Porting Constraints
+
+      IMPORTANT CONSTRAINTS when porting from upstream to downstream:
+
+      1. **LazyHTML vs Floki:**
+         - LiveView Native uses Floki for parsing native markup (our primary use case)
+         - LazyHTML is Phoenix LiveView's HTML parser and is NOT compatible with native markup
+         - HOWEVER: LiveViewNative also supports HTML fallback rendering for web browsers
+         - Therefore: LazyHTML-based code MAY be included if it's specifically for HTML fallback testing
+         - When in doubt: Prefer Floki for native markup, preserve LazyHTML only for HTML fallback paths
+
+      2. **CSS and JS Exclusions:**
+         - CSS-related functionality should NOT be translated (not applicable to native platforms)
+         - JavaScript-related functionality should NOT be translated (not applicable to native platforms)
+         - This includes: style attributes, CSS selectors (unless used for general querying), JS interop, etc.
+
+      3. **Module Namespacing:**
+         - Phoenix.LiveView → LiveViewNative
+         - Phoenix.LiveViewTest → LiveViewNativeTest
+         - HTML-specific terms → Native-agnostic or native-specific terms
+      """
+
+      File.write!(file, template)
+    end
+
+    defp parse_config_file(file) do
+      content = File.read!(file)
+
+      # Simple parser for markdown format
+      upstream_name = extract_field(content, "## Upstream Project", "Name")
+      upstream_abbrev = extract_field(content, "## Upstream Project", "Abbreviation")
+
+      downstream_name = extract_field(content, "## Downstream Project", "Name")
+      downstream_abbrev = extract_field(content, "## Downstream Project", "Abbreviation")
+      downstream_dir = extract_field(content, "## Downstream Project", "Repository Path")
+
+      # Extract everything after "## Porting Constraints" header
+      constraints = extract_section(content, "## Porting Constraints")
+
+      config = %Config{
+        upstream_name: upstream_name,
+        upstream_abbrev: upstream_abbrev,
+        upstream_dir: nil,  # Will be set from command line
+        downstream_name: downstream_name,
+        downstream_abbrev: downstream_abbrev,
+        downstream_dir: downstream_dir,
+        porting_constraints: constraints
+      }
+
+      IO.puts("")
+      IO.puts("Configuration loaded:")
+      IO.puts("  #{upstream_name} (#{upstream_abbrev})")
+      IO.puts("  → #{downstream_name} (#{downstream_abbrev}) at #{downstream_dir}")
+      IO.puts("")
+
+      config
+    end
+
+    defp extract_field(content, section, field) do
+      # Find the section, then find the field line
+      case Regex.run(~r/#{Regex.escape(section)}.*?\*\*#{Regex.escape(field)}:\*\*\s*(.+)/s, content) do
+        [_, value] -> String.trim(value) |> String.split("\n") |> hd()
+        _ -> raise "Could not find '#{field}' in section '#{section}' in config file"
+      end
+    end
+
+    defp extract_section(content, section_header) do
+      # Extract everything after the section header until the next ## or end of file
+      case Regex.run(~r/#{Regex.escape(section_header)}\n\n(.+)/s, content) do
+        [_, section_content] ->
+          # Take until next ## header or end
+          section_content
+          |> String.split(~r/^##\s/m)
+          |> hd()
+          |> String.trim()
+
+        _ ->
+          raise "Could not find section '#{section_header}' in config file"
+      end
     end
   end
 
@@ -325,13 +431,13 @@ defmodule TrackUpstream do
     @doc """
     Verify if one file is a translation/port of another using LLM.
     """
-    def verify_translation(plv_file, plv_content, lvn_file, lvn_content) do
+    def verify_translation(config, plv_file, plv_content, lvn_file, lvn_content) do
       # Create cache key from both file contents
       cache_key =
         :crypto.hash(:sha256, plv_content <> lvn_content) |> Base.encode16(case: :lower)
 
       Cache.get_or_compute(:verification, cache_key, fn ->
-        ask_llm_verification(plv_file, plv_content, lvn_file, lvn_content)
+        ask_llm_verification(config, plv_file, plv_content, lvn_file, lvn_content)
       end)
     end
 
@@ -360,7 +466,7 @@ defmodule TrackUpstream do
     @doc """
     Generate a description of a file for LLM consumption.
     """
-    def generate_file_description(file_path, content) do
+    def generate_file_description(proj_config, file_path, content) do
       api_key = System.get_env("OPENAI_API_KEY")
       unless api_key, do: raise "OPENAI_API_KEY not set"
 
@@ -375,7 +481,7 @@ defmodule TrackUpstream do
         end
 
       prompt = """
-      Analyze this newly added Phoenix LiveView file and provide a concise description that helps determine when this file is relevant for porting to LiveView Native.
+      Analyze this newly added #{proj_config.upstream_name} file and provide a concise description that helps determine when this file is relevant for porting to #{proj_config.downstream_name}.
 
       **File:** #{file_path}
 
@@ -387,8 +493,8 @@ defmodule TrackUpstream do
       **Provide:**
       1. **Purpose:** What does this file do? (1-2 sentences)
       2. **Key exports:** Main functions, modules, or macros defined
-      3. **Dependencies:** Notable dependencies or integrations with other LiveView components
-      4. **Relevance for LVN:** When would this be needed in LiveView Native? (e.g., "only if implementing X feature", "core testing infrastructure", "web-specific, likely not needed")
+      3. **Dependencies:** Notable dependencies or integrations with other #{proj_config.upstream_name} components
+      4. **Relevance for #{proj_config.downstream_abbrev}:** When would this be needed in #{proj_config.downstream_name}? (e.g., "only if implementing X feature", "core testing infrastructure", "web-specific, likely not needed")
 
       Keep the description concise and factual. Format as markdown.
       """
@@ -418,7 +524,7 @@ defmodule TrackUpstream do
     @doc """
     Call OpenAI to perform analysis using the file-pair-analyzer agent.
     """
-    def call_analysis_agent(prompt) do
+    def call_analysis_agent(proj_config, prompt) do
       api_key = System.get_env("OPENAI_API_KEY")
       unless api_key, do: raise "OPENAI_API_KEY not set"
 
@@ -426,33 +532,33 @@ defmodule TrackUpstream do
 
       # Read the file-pair-analyzer agent instructions
       agent_instructions = """
-      TASK: Please upgrade the current version of LiveView Native to incorporate recent changes to Phoenix LiveView, of which it is a derivative.
+      TASK: Please upgrade the current version of #{proj_config.downstream_name} to incorporate recent changes to #{proj_config.upstream_name}, of which it is a derivative.
 
-      #{Config.porting_constraints()}
+      #{proj_config.porting_constraints}
 
       CONTEXT:
-      - BASELINE TRANSFORMATION: PLV start → LVN start shows how the original code was adapted
-      - UPSTREAM DELTA: PLV start → PLV end shows what changed upstream that needs porting
+      - BASELINE TRANSFORMATION: #{proj_config.upstream_abbrev} start → #{proj_config.downstream_abbrev} start shows how the original code was adapted
+      - UPSTREAM DELTA: #{proj_config.upstream_abbrev} start → #{proj_config.upstream_abbrev} end shows what changed upstream that needs porting
       - YOUR JOB: Document the baseline transformation to guide applying the upstream delta
 
       Your task:
-      1. Analyze DIFF 2 (PLV start → LVN start): Identify FILE-GLOBAL transformation rules
-      2. Document these rules - they show HOW to adapt PLV code to LVN
-      3. Analyze DIFF 1 (PLV start → PLV end): Show upstream changes in LLM-friendly format
+      1. Analyze DIFF 2 (#{proj_config.upstream_abbrev} start → #{proj_config.downstream_abbrev} start): Identify FILE-GLOBAL transformation rules
+      2. Document these rules - they show HOW to adapt #{proj_config.upstream_abbrev} code to #{proj_config.downstream_abbrev}
+      3. Analyze DIFF 1 (#{proj_config.upstream_abbrev} start → #{proj_config.upstream_abbrev} end): Show upstream changes in LLM-friendly format
       4. DO NOT LOSE INFORMATION - all changes must be accounted for
 
       Output format:
 
-      ## FILE-GLOBAL TRANSFORMATION RULES (PLV start → LVN start)
+      ## FILE-GLOBAL TRANSFORMATION RULES (#{proj_config.upstream_abbrev} start → #{proj_config.downstream_abbrev} start)
 
-      These rules describe how this file was adapted from PLV to LVN. Use these patterns when porting upstream changes.
+      These rules describe how this file was adapted from #{proj_config.upstream_abbrev} to #{proj_config.downstream_abbrev}. Use these patterns when porting upstream changes.
 
       For each rule:
       - Rule name and pattern (e.g., "Module namespace: Phoenix.LiveView.X → LiveViewNative.X")
       - Number of applications
       - 1-2 concrete examples showing the transformation
 
-      ## BASELINE TRANSFORMATION DETAILS (PLV start → LVN start)
+      ## BASELINE TRANSFORMATION DETAILS (#{proj_config.upstream_abbrev} start → #{proj_config.downstream_abbrev} start)
 
       ### Mechanical Changes
       For each location where rules apply:
@@ -464,12 +570,12 @@ defmodule TrackUpstream do
       For changes NOT covered by rules:
       - Description
       - Location
-      - Before (PLV start) / After (LVN start) code
+      - Before (#{proj_config.upstream_abbrev} start) / After (#{proj_config.downstream_abbrev} start) code
       - Why this adaptation was needed
 
-      ## UPSTREAM DELTA (PLV start → PLV end)
+      ## UPSTREAM DELTA (#{proj_config.upstream_abbrev} start → #{proj_config.upstream_abbrev} end)
 
-      **These are the changes that need to be ported to LVN.**
+      **These are the changes that need to be ported to #{proj_config.downstream_abbrev}.**
 
       Format in an LLM-friendly way:
       - If no changes: state "No upstream changes"
@@ -512,7 +618,7 @@ defmodule TrackUpstream do
 
     # Private functions
 
-    defp ask_llm_verification(plv_file, plv_content, lvn_file, lvn_content) do
+    defp ask_llm_verification(proj_config, plv_file, plv_content, lvn_file, lvn_content) do
       api_key = System.get_env("OPENAI_API_KEY")
       unless api_key, do: raise "OPENAI_API_KEY environment variable not set"
 
@@ -552,28 +658,28 @@ defmodule TrackUpstream do
         %{
           "is_translation" => false,
           "confidence" => "high",
-          "reason" => "File types don't match: PLV is #{plv_type}, LVN is #{lvn_type}"
+          "reason" => "File types don't match: #{proj_config.upstream_abbrev} is #{plv_type}, #{proj_config.downstream_abbrev} is #{lvn_type}"
         }
       else
         prompt = """
-        You are analyzing two Elixir source files to determine if the LiveView Native file was created by copying and adapting the Phoenix LiveView file.
+        You are analyzing two Elixir source files to determine if the #{proj_config.downstream_name} file was created by copying and adapting the #{proj_config.upstream_name} file.
 
-        Context: LiveView Native was built by copying Phoenix LiveView files and modifying them to support native platforms. A "translation" means the LVN file was literally created from the PLV file as its source, with systematic changes like Phoenix.LiveView → LiveViewNative.
+        Context: #{proj_config.downstream_name} was built by copying #{proj_config.upstream_name} files and modifying them to support native platforms. A "translation" means the #{proj_config.downstream_abbrev} file was literally created from the #{proj_config.upstream_abbrev} file as its source, with systematic changes like Phoenix.LiveView → LiveViewNative.
 
-        Phoenix LiveView file:
+        #{proj_config.upstream_name} file:
         ```elixir
         #{plv_content}
         ```
 
-        LiveView Native file:
+        #{proj_config.downstream_name} file:
         ```elixir
         #{lvn_content}
         ```
 
         To determine if this is a translation, answer these questions:
 
-        1. What is the PRIMARY PURPOSE of the PLV file? (e.g., "tests routing behavior", "implements server channel", "defines component DSL")
-        2. What is the PRIMARY PURPOSE of the LVN file?
+        1. What is the PRIMARY PURPOSE of the #{proj_config.upstream_abbrev} file? (e.g., "tests routing behavior", "implements server channel", "defines component DSL")
+        2. What is the PRIMARY PURPOSE of the #{proj_config.downstream_abbrev} file?
         3. Are these purposes IDENTICAL? (not just similar domain, but the EXACT SAME thing)
 
         A TRUE translation means:
@@ -712,7 +818,7 @@ defmodule TrackUpstream do
     Find the closest matching LVN file for a given PLV file.
     Returns {plv_file, best_match, similarity, verification} or nil.
     """
-    def find_closest_match(plv_file, plv_dir, plv_rev, lvn_files, lvn_dir, lvn_rev) do
+    def find_closest_match(config, plv_file, plv_dir, plv_rev, lvn_files, lvn_dir, lvn_rev) do
       case Git.get_file_content(plv_dir, plv_rev, plv_file) do
         {:ok, plv_content} when byte_size(plv_content) > 0 ->
           # Compare with all LVN files using embeddings
@@ -742,7 +848,7 @@ defmodule TrackUpstream do
             verification =
               if best_similarity > threshold do
                 IO.write(".")
-                OpenAI.Chat.verify_translation(plv_file, plv_content, best_match, best_lvn_content)
+                OpenAI.Chat.verify_translation(config, plv_file, plv_content, best_match, best_lvn_content)
               else
                 nil
               end
@@ -803,33 +909,33 @@ defmodule TrackUpstream do
     2. PLV start → LVN start (baseline transformation)
     3. LVN start → workdir (work in progress)
     """
-    def analyze_file_pair(plv_start_rev, plv_end_rev, lvn_start_rev, plv_file, lvn_file) do
-      plv_dir = "../phoenix_live_view"
-      lvn_dir = "."
+    def analyze_file_pair(config, plv_start_rev, plv_end_rev, lvn_start_rev, plv_file, lvn_file) do
+      plv_dir = config.upstream_dir
+      lvn_dir = config.downstream_dir
 
       header = """
       #{"=" |> String.duplicate(80)}
       FILE PAIR ANALYSIS
       #{"=" |> String.duplicate(80)}
-      PLV: #{plv_file}
-      LVN: #{lvn_file}
+      #{config.upstream_abbrev}: #{plv_file}
+      #{config.downstream_abbrev}: #{lvn_file}
 
       """
 
       diff1 = """
-      ### DIFF 1: Phoenix LiveView #{plv_start_rev}..#{plv_end_rev} ###
+      ### DIFF 1: #{config.upstream_name} #{plv_start_rev}..#{plv_end_rev} ###
       #{generate_repo_diff(plv_dir, plv_start_rev, plv_end_rev, plv_file)}
 
       """
 
       diff2 = """
-      ### DIFF 2: PLV #{plv_start_rev} -> LVN #{lvn_start_rev} ###
+      ### DIFF 2: #{config.upstream_abbrev} #{plv_start_rev} -> #{config.downstream_abbrev} #{lvn_start_rev} ###
       #{generate_cross_repo_diff(plv_dir, plv_start_rev, plv_file, lvn_dir, lvn_start_rev, lvn_file)}
 
       """
 
       diff3 = """
-      ### DIFF 3: LVN #{lvn_start_rev} -> workdir ###
+      ### DIFF 3: #{config.downstream_abbrev} #{lvn_start_rev} -> workdir ###
       #{generate_workdir_diff(lvn_dir, lvn_start_rev, lvn_file)}
 
       """
@@ -873,8 +979,8 @@ defmodule TrackUpstream do
               # Replace temp file paths with meaningful names
               output =
                 output
-                |> String.replace(plv_temp, "PLV:#{plv_file}")
-                |> String.replace(lvn_temp, "LVN:#{lvn_file}")
+                |> String.replace(plv_temp, "#{plv_file}")
+                |> String.replace(lvn_temp, "#{lvn_file}")
 
               if byte_size(output) > 0 do
                 output
@@ -925,17 +1031,18 @@ defmodule TrackUpstream do
     Run detailed analysis on all file pairs using GPT-4o.
     """
     def run_detailed_analysis(
+          config,
           plv_start_rev,
           plv_end_rev,
           lvn_start_rev,
           file_pairs,
           newly_added_files
         ) do
-      plv_dir = "../phoenix_live_view"
+      plv_dir = config.upstream_dir
 
       # Filter to only pairs where PLV source has changed
       IO.puts(
-        "Checking which PLV files have changed between #{plv_start_rev} and #{plv_end_rev}..."
+        "Checking which #{config.upstream_abbrev} files have changed between #{plv_start_rev} and #{plv_end_rev}..."
       )
 
       changed_pairs =
@@ -977,6 +1084,7 @@ defmodule TrackUpstream do
             # Get the actual diffs
             diff_output =
               FilePairAnalyzer.analyze_file_pair(
+                config,
                 plv_start_rev,
                 plv_end_rev,
                 lvn_start_rev,
@@ -986,35 +1094,35 @@ defmodule TrackUpstream do
 
             # Call analysis agent
             prompt = """
-            Analyze this PLV/LVN file pair to document the baseline transformation and upstream delta:
+            Analyze this #{config.upstream_abbrev}/#{config.downstream_abbrev} file pair to document the baseline transformation and upstream delta:
 
             **File Pair:**
-            - PLV file: #{plv_file}
-            - LVN file: #{lvn_file}
+            - #{config.upstream_abbrev} file: #{plv_file}
+            - #{config.downstream_abbrev} file: #{lvn_file}
             - Similarity: #{Float.round(similarity * 100, 2)}%
 
             **Revisions:**
-            - PLV start: #{plv_start_rev}
-            - PLV end: #{plv_end_rev}
-            - LVN start: #{lvn_start_rev}
+            - #{config.upstream_abbrev} start: #{plv_start_rev}
+            - #{config.upstream_abbrev} end: #{plv_end_rev}
+            - #{config.downstream_abbrev} start: #{lvn_start_rev}
 
             **Diffs:**
 
             The output below contains three diffs:
-            1. DIFF 1 (PLV #{plv_start_rev} → #{plv_end_rev}): UPSTREAM DELTA - changes that need porting
-            2. DIFF 2 (PLV #{plv_start_rev} → LVN #{lvn_start_rev}): BASELINE TRANSFORMATION - how code was adapted
-            3. DIFF 3 (LVN #{lvn_start_rev} → working dir): Work in progress (if any)
+            1. DIFF 1 (#{config.upstream_abbrev} #{plv_start_rev} → #{plv_end_rev}): UPSTREAM DELTA - changes that need porting
+            2. DIFF 2 (#{config.upstream_abbrev} #{plv_start_rev} → #{config.downstream_abbrev} #{lvn_start_rev}): BASELINE TRANSFORMATION - how code was adapted
+            3. DIFF 3 (#{config.downstream_abbrev} #{lvn_start_rev} → working dir): Work in progress (if any)
 
             #{diff_output}
 
             **Your task:**
             Analyze these diffs and provide a structured analysis showing:
-            1. How the code was transformed from PLV to LVN (DIFF 2) - extract transformation rules
-            2. What changed upstream in PLV (DIFF 1) - format for LLM consumption
+            1. How the code was transformed from #{config.upstream_abbrev} to #{config.downstream_abbrev} (DIFF 2) - extract transformation rules
+            2. What changed upstream in #{config.upstream_abbrev} (DIFF 1) - format for LLM consumption
             3. Guidance on applying the transformation rules to the upstream changes
             """
 
-            analysis = OpenAI.Chat.call_analysis_agent(prompt)
+            analysis = OpenAI.Chat.call_analysis_agent(config, prompt)
 
             # Save individual analysis
             safe_filename = String.replace(plv_file, "/", "_")
@@ -1032,6 +1140,7 @@ defmodule TrackUpstream do
 
         global_guide =
           GuideBuilder.build_global_guide(
+            config,
             analyses,
             plv_start_rev,
             plv_end_rev,
@@ -1069,6 +1178,7 @@ defmodule TrackUpstream do
     Build the global porting guide from individual analyses.
     """
     def build_global_guide(
+          config,
           analyses,
           plv_start_rev,
           plv_end_rev,
@@ -1077,11 +1187,11 @@ defmodule TrackUpstream do
           plv_dir
         ) do
       """
-      # Phoenix LiveView → LiveView Native: Upstream Porting Guide
+      # #{config.upstream_name} → #{config.downstream_name}: Upstream Porting Guide
 
       **Generated:** #{DateTime.utc_now() |> DateTime.to_string()}
-      **Baseline:** PLV #{plv_start_rev} → LVN #{lvn_start_rev}
-      **Upstream Delta:** PLV #{plv_start_rev} → #{plv_end_rev}
+      **Baseline:** #{config.upstream_abbrev} #{plv_start_rev} → #{config.downstream_abbrev} #{lvn_start_rev}
+      **Upstream Delta:** #{config.upstream_abbrev} #{plv_start_rev} → #{plv_end_rev}
       **Files Analyzed:** #{length(analyses)}
       **Relevant New Files:** #{length(newly_added_files)} (renames/refactors + tests for translated modules)
 
@@ -1089,41 +1199,41 @@ defmodule TrackUpstream do
 
       ## Purpose
 
-      **TASK:** Upgrade the current version of LiveView Native to incorporate recent changes to Phoenix LiveView, of which it is a derivative.
+      **TASK:** Upgrade the current version of #{config.downstream_name} to incorporate recent changes to #{config.upstream_name}, of which it is a derivative.
 
       **CURRENT STATE:**
-      - The Phoenix LiveView dependency has already been updated, causing existing test failures
+      - The #{config.upstream_name} dependency has already been updated, causing existing test failures
       - Run `mix test` to see current failures and prioritize changes based on impact
 
-      #{Config.porting_constraints()}
+      #{config.porting_constraints}
 
       This guide documents:
-      - **Baseline transformation:** How Phoenix LiveView code was originally adapted to LiveView Native (PLV #{plv_start_rev} → LVN #{lvn_start_rev})
-      - **Upstream delta:** What changed in Phoenix LiveView that needs porting (PLV #{plv_start_rev} → #{plv_end_rev})
-      - **Newly added files:** Descriptions of files added in Phoenix LiveView to help determine relevance (see Addendum)
+      - **Baseline transformation:** How #{config.upstream_name} code was originally adapted to #{config.downstream_name} (#{config.upstream_abbrev} #{plv_start_rev} → #{config.downstream_abbrev} #{lvn_start_rev})
+      - **Upstream delta:** What changed in #{config.upstream_name} that needs porting (#{config.upstream_abbrev} #{plv_start_rev} → #{plv_end_rev})
+      - **Newly added files:** Descriptions of files added in #{config.upstream_name} to help determine relevance (see Addendum)
 
       **Use this guide to:**
-      1. Understand the transformation patterns (PLV → LVN)
+      1. Understand the transformation patterns (#{config.upstream_abbrev} → #{config.downstream_abbrev})
       2. Apply those patterns to upstream changes
-      3. Identify which newly added files are relevant for LiveView Native
+      3. Identify which newly added files are relevant for #{config.downstream_name}
 
       ---
 
       ## Project-Global Transformation Rules
 
-      These rules appear across multiple files and represent the core mechanical transformations from Phoenix LiveView to LiveView Native.
+      These rules appear across multiple files and represent the core mechanical transformations from #{config.upstream_name} to #{config.downstream_name}.
 
       **Apply these rules when porting upstream changes.**
 
-      #{extract_global_rules(analyses)}
+      #{extract_global_rules(config, analyses)}
 
       ---
 
       ## File-Specific Porting Guides
 
       Each section below shows:
-      - **Baseline transformation rules** for that file (PLV #{plv_start_rev} → LVN #{lvn_start_rev})
-      - **Upstream delta** for that file (PLV #{plv_start_rev} → #{plv_end_rev})
+      - **Baseline transformation rules** for that file (#{config.upstream_abbrev} #{plv_start_rev} → #{config.downstream_abbrev} #{lvn_start_rev})
+      - **Upstream delta** for that file (#{config.upstream_abbrev} #{plv_start_rev} → #{plv_end_rev})
       - **Porting guidance** specific to that file
 
       #{build_file_specific_sections(analyses)}
@@ -1145,7 +1255,7 @@ defmodule TrackUpstream do
       **Goal:** Port all upstream changes in a series of logical updates, fixing test failures and ensuring
       no new failures are introduced at each step.
 
-      **IMPORTANT:** The Phoenix LiveView dependency has already been updated, so `mix test` will show existing
+      **IMPORTANT:** The #{config.upstream_name} dependency has already been updated, so `mix test` will show existing
       failures. These failures help you PRIORITIZE THE ORDER of porting work, but you will port ALL changes
       documented in this guide, not just the ones that fix tests.
 
@@ -1171,9 +1281,9 @@ defmodule TrackUpstream do
          you must either:
          - **Port it** - Apply the transformation rules to port the change to LVN
          - **Exclude it** - Document why it's not applicable (e.g., CSS/JS exclusions per constraints,
-           web-specific functionality, already implemented differently in LVN, etc.)
+           web-specific functionality, already implemented differently in #{config.downstream_abbrev}, etc.)
 
-         IMPORTANT: Some changes may not be applicable to LiveView Native, but there must be an EXPLICIT
+         IMPORTANT: Some changes may not be applicable to #{config.downstream_name}, but there must be an EXPLICIT
          DETERMINATION for each upstream delta with a clear explanation of why it was ported or excluded.
 
       6. **Execute steps with subagents (LINEAR - NO PARALLELISM):**
@@ -1222,11 +1332,11 @@ defmodule TrackUpstream do
 
       **Example Subagent Prompt:**
       ```
-      Task: Complete step X of #{length(analyses)}: [FILE PAIR] of the LiveView Native upgrade
+      Task: Complete step X of #{length(analyses)}: [FILE PAIR] of the #{config.downstream_name} upgrade
 
       Context: Read UPSTREAM_PORTING_GUIDE.md section X for this file pair.
 
-      Current State: The Phoenix LiveView dependency has been updated, causing test failures.
+      Current State: The #{config.upstream_name} dependency has been updated, causing test failures.
       Run `mix test` first to see which tests are currently failing.
 
       This file has [N] upstream deltas documented. You must address ALL of them.
@@ -1237,9 +1347,9 @@ defmodule TrackUpstream do
       ...
 
       For each delta, either:
-      - Port it to LVN (apply transformation rules from the guide)
+      - Port it to #{config.downstream_abbrev} (apply transformation rules from the guide)
       - Document why it's not applicable (e.g., CSS/JS per constraints, web-specific,
-        already implemented differently in LVN, etc.)
+        already implemented differently in #{config.downstream_abbrev}, etc.)
 
       Requirements:
       - Address ALL upstream deltas for this file pair
@@ -1253,14 +1363,14 @@ defmodule TrackUpstream do
 
       Available Resources:
       - Porting guide: UPSTREAM_PORTING_GUIDE.md (in current directory)
-      - Phoenix LiveView repo: ../phoenix_live_view
-      - To view Phoenix LiveView files at specific revisions:
-        * #{plv_start_rev} (baseline): git -C ../phoenix_live_view show #{plv_start_rev}:path/to/file
-        * #{plv_end_rev} (target): git -C ../phoenix_live_view show #{plv_end_rev}:path/to/file
-      - Current LiveView Native files: in current directory
+      - #{config.upstream_name} repo: #{config.upstream_dir}
+      - To view #{config.upstream_name} files at specific revisions:
+        * #{plv_start_rev} (baseline): git -C #{config.upstream_dir} show #{plv_start_rev}:path/to/file
+        * #{plv_end_rev} (target): git -C #{config.upstream_dir} show #{plv_end_rev}:path/to/file
+      - Current #{config.downstream_name} files: in current directory
 
       When you need more context than provided in the guide diffs, read the full
-      Phoenix LiveView files using the git commands above.
+      #{config.upstream_name} files using the git commands above.
 
       Report when complete with:
       - Summary of what was ported for each delta
@@ -1273,7 +1383,7 @@ defmodule TrackUpstream do
 
       ## Addendum: Newly Added Files
 
-      #{build_newly_added_files_section(newly_added_files, plv_dir, plv_end_rev)}
+      #{build_newly_added_files_section(config, newly_added_files, plv_dir, plv_end_rev)}
 
       """
     end
@@ -1297,7 +1407,7 @@ defmodule TrackUpstream do
       |> Enum.join("\n")
     end
 
-    defp extract_global_rules(analyses) do
+    defp extract_global_rules(proj_config, analyses) do
       # Use LLM to extract project-global rules from all file-global rules
       api_key = System.get_env("OPENAI_API_KEY")
       unless api_key, do: raise "OPENAI_API_KEY not set"
@@ -1317,15 +1427,15 @@ defmodule TrackUpstream do
         |> Enum.join("\n")
 
       prompt = """
-      TASK: You are helping upgrade LiveView Native to incorporate recent changes to Phoenix LiveView, of which it is a derivative.
+      TASK: You are helping upgrade #{proj_config.downstream_name} to incorporate recent changes to #{proj_config.upstream_name}, of which it is a derivative.
 
       CURRENT STATE:
-      - The Phoenix LiveView dependency has already been updated, causing existing test failures
+      - The #{proj_config.upstream_name} dependency has already been updated, causing existing test failures
       - Changes should prioritize fixing these test failures
       - Changes should be made in logical steps
       - After each step: ensure no NEW test failures and tests related to the step should pass
 
-      #{Config.porting_constraints()}
+      #{proj_config.porting_constraints}
 
       You are analyzing #{length(analyses)} file pair analyses to extract PROJECT-GLOBAL transformation rules.
 
@@ -1389,25 +1499,25 @@ defmodule TrackUpstream do
       end
     end
 
-    defp build_newly_added_files_section(newly_added_files, plv_dir, plv_end_rev) do
+    defp build_newly_added_files_section(config, newly_added_files, plv_dir, plv_end_rev) do
       if Enum.empty?(newly_added_files) do
-        "_No relevant new files were added in this Phoenix LiveView update._"
+        "_No relevant new files were added in this #{config.upstream_name} update._"
       else
         """
-        The following files were newly added in Phoenix LiveView #{plv_end_rev}. These include:
-        1. **Likely renames/refactors** - New files that match existing LVN files already matched to other PLV files
-        2. **Tests for translated modules** - New test files that test modules which have been translated to LVN
+        The following files were newly added in #{config.upstream_name} #{plv_end_rev}. These include:
+        1. **Likely renames/refactors** - New files that match existing #{config.downstream_abbrev} files already matched to other #{config.upstream_abbrev} files
+        2. **Tests for translated modules** - New test files that test modules which have been translated to #{config.downstream_abbrev}
 
-        Descriptions are provided to help determine when the actual content is relevant for porting to LiveView Native.
+        Descriptions are provided to help determine when the actual content is relevant for porting to #{config.downstream_name}.
 
         **Files included:** #{length(newly_added_files)}
 
-        #{build_file_descriptions(newly_added_files, plv_dir, plv_end_rev)}
+        #{build_file_descriptions(config, newly_added_files, plv_dir, plv_end_rev)}
         """
       end
     end
 
-    defp build_file_descriptions(files, plv_dir, plv_rev) do
+    defp build_file_descriptions(config, files, plv_dir, plv_rev) do
       IO.puts("Generating descriptions for #{length(files)} newly added files...")
 
       files
@@ -1417,7 +1527,7 @@ defmodule TrackUpstream do
 
         case Git.get_file_content(plv_dir, plv_rev, file) do
           {:ok, content} ->
-            description = OpenAI.Chat.generate_file_description(file, content)
+            description = OpenAI.Chat.generate_file_description(config, file, content)
 
             """
             ### #{idx}. `#{file}`
@@ -1465,13 +1575,21 @@ defmodule TrackUpstream do
       # Validate configuration
       Config.validate!()
 
-      analyze = Keyword.get(opts, :analyze, false)
-      plv_dir = "../phoenix_live_view"
-      lvn_dir = "."
+      # Load or generate project configuration
+      config = Config.load_or_generate_config()
+
+      # Get upstream directory from options (defaults to current directory)
+      upstream_dir = Keyword.get(opts, :upstream_dir, ".")
+
+      # Update config with upstream directory from command line
+      config = %{config | upstream_dir: upstream_dir}
+
+      plv_dir = config.upstream_dir
+      lvn_dir = config.downstream_dir
 
       IO.puts("Finding closest file matches...")
-      IO.puts("Phoenix LiveView: #{plv_start_rev} -> #{plv_end_rev} (in #{plv_dir})")
-      IO.puts("LiveView Native: #{lvn_start_rev} (in #{lvn_dir})")
+      IO.puts("#{config.upstream_name}: #{plv_start_rev} -> #{plv_end_rev} (in #{plv_dir})")
+      IO.puts("#{config.downstream_name}: #{lvn_start_rev} (in #{lvn_dir})")
       IO.puts("")
 
       # Get list of Elixir files from both repos
@@ -1500,6 +1618,7 @@ defmodule TrackUpstream do
         |> Task.async_stream(
           fn plv_file ->
             FileMatcher.find_closest_match(
+              config,
               plv_file,
               plv_dir,
               plv_start_rev,
@@ -1527,6 +1646,7 @@ defmodule TrackUpstream do
         |> Task.async_stream(
           fn plv_file ->
             FileMatcher.find_closest_match(
+              config,
               plv_file,
               plv_dir,
               plv_end_rev,
@@ -1645,6 +1765,7 @@ defmodule TrackUpstream do
 
       # Print results
       print_results(
+        config,
         existing_results_filtered,
         new_with_claimed_annotated,
         new_tests_for_translated,
@@ -1658,36 +1779,36 @@ defmodule TrackUpstream do
         lvn_start_rev
       )
 
-      # Run detailed analysis if requested
-      if analyze do
-        IO.puts("")
-        IO.puts("=" |> String.duplicate(80))
-        IO.puts("DETAILED ANALYSIS PHASE")
-        IO.puts("=" |> String.duplicate(80))
-        IO.puts("")
+      # Run detailed analysis
+      IO.puts("")
+      IO.puts("=" |> String.duplicate(80))
+      IO.puts("DETAILED ANALYSIS PHASE")
+      IO.puts("=" |> String.duplicate(80))
+      IO.puts("")
 
-        # Collect relevant newly added files for the addendum
-        relevant_new_files =
-          Enum.map(new_with_claimed_annotated, fn {new_plv, _lvn, _sim, _verification, _original} ->
-            new_plv
-          end) ++
-            Enum.map(new_tests_for_translated, fn {test_file, _all_tested, _matching} ->
-              test_file
-            end)
+      # Collect relevant newly added files for the addendum
+      relevant_new_files =
+        Enum.map(new_with_claimed_annotated, fn {new_plv, _lvn, _sim, _verification, _original} ->
+          new_plv
+        end) ++
+          Enum.map(new_tests_for_translated, fn {test_file, _all_tested, _matching} ->
+            test_file
+          end)
 
-        Analysis.run_detailed_analysis(
-          plv_start_rev,
-          plv_end_rev,
-          lvn_start_rev,
-          existing_results_filtered,
-          relevant_new_files
-        )
-      end
+      Analysis.run_detailed_analysis(
+        config,
+        plv_start_rev,
+        plv_end_rev,
+        lvn_start_rev,
+        existing_results_filtered,
+        relevant_new_files
+      )
     end
 
     # Private functions
 
     defp print_results(
+           config,
            existing_results_filtered,
            new_with_claimed_annotated,
            new_tests_for_translated,
@@ -1720,8 +1841,8 @@ defmodule TrackUpstream do
 
       IO.puts("")
       IO.puts("=" |> String.duplicate(80))
-      IO.puts("NEWLY ADDED PLV FILES - Likely Renames/Refactors")
-      IO.puts("(Matches LVN files already matched to other PLV files)")
+      IO.puts("NEWLY ADDED #{config.upstream_abbrev} FILES - Likely Renames/Refactors")
+      IO.puts("(Matches #{config.downstream_abbrev} files already matched to other #{config.upstream_abbrev} files)")
       IO.puts("=" |> String.duplicate(80))
       IO.puts("")
 
@@ -1738,14 +1859,14 @@ defmodule TrackUpstream do
             end
 
           IO.puts("NEW: #{new_plv}\t#{Float.round(sim * 100, 2)}%#{verification_text}")
-          IO.puts("  -> LVN: #{lvn}")
+          IO.puts("  -> #{config.downstream_abbrev}: #{lvn}")
           IO.puts("  -> OLD: #{old_plv}\t#{Float.round(old_sim * 100, 2)}%")
           IO.puts("")
         end
       end
 
       IO.puts("=" |> String.duplicate(80))
-      IO.puts("NEWLY ADDED PLV FILES - Tests for Translated Modules")
+      IO.puts("NEWLY ADDED #{config.upstream_abbrev} FILES - Tests for Translated Modules")
       IO.puts("(New test files that test modules which have been translated)")
       IO.puts("=" |> String.duplicate(80))
       IO.puts("")
@@ -1761,8 +1882,8 @@ defmodule TrackUpstream do
       end
 
       IO.puts("=" |> String.duplicate(80))
-      IO.puts("NEWLY ADDED PLV FILES - Potentially Need LVN Equivalent")
-      IO.puts("(Matches unclaimed LVN files - may indicate LVN already has it)")
+      IO.puts("NEWLY ADDED #{config.upstream_abbrev} FILES - Potentially Need #{config.downstream_abbrev} Equivalent")
+      IO.puts("(Matches unclaimed #{config.downstream_abbrev} files - may indicate #{config.downstream_abbrev} already has it)")
       IO.puts("=" |> String.duplicate(80))
       IO.puts("")
 
@@ -1788,7 +1909,7 @@ defmodule TrackUpstream do
 
       IO.puts("")
       IO.puts("=" |> String.duplicate(80))
-      IO.puts("NEWLY ADDED PLV FILES - Need Manual Review")
+      IO.puts("NEWLY ADDED #{config.upstream_abbrev} FILES - Need Manual Review")
       IO.puts("(#{files_needing_porting} files with <70% similarity - likely need new implementation)")
       IO.puts("=" |> String.duplicate(80))
       IO.puts("")
@@ -1806,10 +1927,10 @@ defmodule TrackUpstream do
       end
 
       IO.puts("")
-      IO.puts("Newly added PLV files: #{length(newly_added_files)}")
+      IO.puts("Newly added #{config.upstream_abbrev} files: #{length(newly_added_files)}")
       IO.puts("  - Likely renames/refactors: #{length(new_with_claimed_annotated)}")
       IO.puts("  - Tests for translated modules: #{length(new_tests_for_translated)}")
-      IO.puts("  - Potentially need LVN equivalent: #{length(new_with_unclaimed_match)}")
+      IO.puts("  - Potentially need #{config.downstream_abbrev} equivalent: #{length(new_with_unclaimed_match)}")
       IO.puts("  - Need manual review (<70%): #{files_needing_porting}")
     end
   end

@@ -28,6 +28,7 @@ tmp/
 
 # Track upstream changes tool
 .track_changes_cache/
+.track_upstream_config.md
 translation_analyses/
 UPSTREAM_PORTING_GUIDE.md
 script/track_upstream/_build/
