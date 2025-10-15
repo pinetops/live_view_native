@@ -7,6 +7,17 @@ defmodule Mix.Tasks.TrackUpstream do
   Uses OpenAI embeddings with cosine similarity for semantic code matching.
   All embeddings and analysis results are cached locally to avoid redundant API calls.
 
+  ## Standalone vs Mix Task
+
+  This tool can be used in two ways:
+  1. **As a Mix task** (this module): `mix track_upstream ...` - requires being in the project directory
+  2. **As a standalone escript**: `track_upstream ...` - can be run from anywhere
+
+  To build the standalone executable:
+      cd script/track_upstream && mix escript.build
+
+  This creates a `track_upstream` executable that can be copied to your PATH.
+
   ## Purpose
 
   This tool helps port changes from Phoenix LiveView to LiveView Native by:
