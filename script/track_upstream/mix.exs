@@ -6,20 +6,13 @@ defmodule TrackUpstream.MixProject do
       app: :track_upstream,
       version: "0.1.0",
       elixir: "~> 1.15",
-      deps: deps(),
-      escript: escript()
+      deps: deps()
     ]
   end
 
   def application do
     [
       extra_applications: [:logger, :crypto]
-    ]
-  end
-
-  defp escript do
-    [
-      main_module: TrackUpstream.CLI.Main
     ]
   end
 

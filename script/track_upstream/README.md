@@ -12,28 +12,44 @@ This tool helps port changes from an upstream project to a downstream project by
 
 ## Installation
 
-### Option 1: Standalone Executable (Recommended)
+### Option 1: Global Installation (Recommended)
 
-Build the standalone executable:
+Install as a Mix archive to use from anywhere:
 
 ```bash
+# Install from GitHub
+mix archive.install github pinetops/live_view_native branch add-file-proximity-mix-task subdir script/track_upstream
+
+# Or build and install locally
 cd script/track_upstream
-mix deps.get
-mix escript.build
+mix do deps.get, archive.build, archive.install
 ```
 
-This creates a `track_upstream` executable. You can copy it to your PATH:
-
-```bash
-cp track_upstream ~/bin/  # or /usr/local/bin/
-```
-
-### Option 2: Mix Task
-
-Use from within the LiveView Native project:
+Then use from any directory:
 
 ```bash
 mix track_upstream <args>
+```
+
+### Option 2: Local Use
+
+Use from within the LiveView Native project without installing:
+
+```bash
+mix track_upstream <args>
+```
+
+### Managing the Archive
+
+```bash
+# Update to latest version
+mix archive.install github pinetops/live_view_native branch add-file-proximity-mix-task subdir script/track_upstream --force
+
+# Uninstall
+mix archive.uninstall track_upstream
+
+# List installed archives
+mix archive
 ```
 
 ## Usage

@@ -105,23 +105,16 @@ defmodule Mix.Tasks.TrackUpstream do
 
   @impl Mix.Task
   def run(args) do
-    # Parse arguments first to provide usage info without loading the script
+    # Parse arguments first to provide usage info
     {plv_start_rev, plv_end_rev, lvn_start_rev, opts} = parse_args(args)
     upstream_dir = Keyword.get(opts, :upstream_dir, ".")
-
-    # Ensure the script project is compiled
-    # This allows the tool to work even if the main app doesn't compile
-    script_path = Path.expand("script/track_upstream", File.cwd!())
-    ensure_script_compiled(script_path)
-
-    # Load the script
-    Code.require_file("lib/track_upstream.ex", script_path)
 
     # Manually start dependencies needed by the script
     Application.ensure_all_started(:telemetry)
     Application.ensure_all_started(:crypto)
     {:ok, _} = Finch.start_link(name: Req.Finch)
 
+    # Call the CLI directly (TrackUpstream module is already compiled in the archive)
     TrackUpstream.CLI.run(plv_start_rev, plv_end_rev, lvn_start_rev, analyze: true, upstream_dir: upstream_dir)
   end
 
@@ -146,26 +139,6 @@ defmodule Mix.Tasks.TrackUpstream do
         IO.puts("Options:")
         IO.puts("  --upstream-dir <path>    Path to upstream repository (default: current directory)")
         System.halt(1)
-    end
-  end
-
-  defp ensure_script_compiled(script_path) do
-    # Change to script directory, compile, and return to original directory
-    original_dir = File.cwd!()
-
-    try do
-      File.cd!(script_path)
-
-      # Check if deps are installed
-      unless File.dir?("deps") do
-        IO.puts("Installing dependencies for track_upstream script...")
-        System.cmd("mix", ["deps.get"], into: IO.stream(:stdio, :line))
-      end
-
-      # Compile the script project
-      System.cmd("mix", ["compile"], into: IO.stream(:stdio, :line))
-    after
-      File.cd!(original_dir)
     end
   end
 end

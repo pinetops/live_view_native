@@ -1933,46 +1933,5 @@ defmodule TrackUpstream do
       IO.puts("  - Potentially need #{config.downstream_abbrev} equivalent: #{length(new_with_unclaimed_match)}")
       IO.puts("  - Need manual review (<70%): #{files_needing_porting}")
     end
-
-    # ============================================================================
-    # ESCRIPT MAIN MODULE
-    # ============================================================================
-
-    defmodule Main do
-      @moduledoc """
-      Main entry point for escript execution.
-      """
-
-      def main(args) do
-        # Parse arguments
-        {opts, remaining, _invalid} = OptionParser.parse(args,
-          switches: [upstream_dir: :string],
-          aliases: []
-        )
-
-        case remaining do
-          [plv_start_rev, plv_end_rev, lvn_start_rev] ->
-            # Start necessary applications
-            Application.ensure_all_started(:telemetry)
-            Application.ensure_all_started(:crypto)
-            {:ok, _} = Finch.start_link(name: Req.Finch)
-
-            # Build options
-            upstream_dir = opts[:upstream_dir]
-            final_opts = if upstream_dir, do: [analyze: true, upstream_dir: upstream_dir], else: [analyze: true]
-
-            # Run the tracker
-            TrackUpstream.CLI.run(plv_start_rev, plv_end_rev, lvn_start_rev, final_opts)
-
-          _ ->
-            IO.puts("Usage: track_upstream <plv_start_rev> <plv_end_rev> <lvn_start_rev> [--upstream-dir <path>]")
-            IO.puts("Example: track_upstream v1.0.18 v1.1.14 some-commit-hash")
-            IO.puts("")
-            IO.puts("Options:")
-            IO.puts("  --upstream-dir <path>    Path to upstream repository (default: current directory)")
-            System.halt(1)
-        end
-      end
-    end
   end
 end

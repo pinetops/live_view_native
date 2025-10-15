@@ -34,4 +34,3 @@ UPSTREAM_PORTING_GUIDE.md
 script/track_upstream/_build/
 script/track_upstream/deps/
 script/track_upstream/mix.lock
-script/track_upstream/track_upstream
