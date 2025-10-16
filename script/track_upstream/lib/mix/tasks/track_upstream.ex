@@ -110,8 +110,16 @@ defmodule Mix.Tasks.TrackUpstream do
     upstream_dir = Keyword.get(opts, :upstream_dir, ".")
 
     # Manually start dependencies needed by the script
+    # Start all applications that Req and Finch depend on
     Application.ensure_all_started(:telemetry)
     Application.ensure_all_started(:crypto)
+    Application.ensure_all_started(:ssl)
+    Application.ensure_all_started(:inets)
+    Application.ensure_all_started(:mint)
+    Application.ensure_all_started(:castore)
+    Application.ensure_all_started(:finch)
+
+    # Now start Finch pool for Req
     {:ok, _} = Finch.start_link(name: Req.Finch)
 
     # Call the CLI directly (TrackUpstream module is already compiled in the archive)
