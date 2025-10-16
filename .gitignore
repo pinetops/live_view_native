@@ -26,11 +26,8 @@ live_view_native-*.tar
 
 tmp/
 
-# Track upstream changes tool
+# Track upstream changes tool output
 .track_changes_cache/
 .track_upstream_config.md
 translation_analyses/
 UPSTREAM_PORTING_GUIDE.md
-script/track_upstream/_build/
-script/track_upstream/deps/
-script/track_upstream/mix.lock
