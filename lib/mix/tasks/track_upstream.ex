@@ -125,6 +125,26 @@ defmodule Mix.Tasks.TrackUpstream do
     TrackUpstream.CLI.run(plv_start_rev, plv_end_rev, lvn_start_rev, analyze: true, upstream_dir: upstream_dir)
   end
 
+  defp ensure_script_compiled(script_path) do
+    # Change to script directory, compile, and return to original directory
+    original_dir = File.cwd!()
+
+    try do
+      File.cd!(script_path)
+
+      # Check if deps are installed
+      unless File.dir?("deps") do
+        IO.puts("Installing dependencies for track_upstream script...")
+        System.cmd("mix", ["deps.get"], into: IO.stream(:stdio, :line))
+      end
+
+      # Compile the script project
+      System.cmd("mix", ["compile"], into: IO.stream(:stdio, :line))
+    after
+      File.cd!(original_dir)
+    end
+  end
+
   defp parse_args(args) do
     {opts, remaining, _invalid} = OptionParser.parse(args,
       switches: [upstream_dir: :string],
